@@ -40,6 +40,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(AntPathRequestMatcher.antMatcher("/error")).permitAll()
+                        .requestMatchers("/actuator/**").permitAll()
                         .requestMatchers(AntPathRequestMatcher.antMatcher("/api/v1/assignments/teacher/**")).hasRole("TEACHER")
                         .requestMatchers(AntPathRequestMatcher.antMatcher("/api/v1/assignments/student/**")).hasRole("STUDENT")
                         .anyRequest().authenticated()

@@ -3,8 +3,11 @@ package Student_Management.assignment_service.service;
 import Student_Management.assignment_service.dto.*;
 import Student_Management.assignment_service.entity.*;
 import Student_Management.assignment_service.repository.*;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import io.minio.*;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
@@ -18,6 +21,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class SubmissionService {
 
     private final AssignmentRepository assignmentRepository;
@@ -94,6 +98,8 @@ public class SubmissionService {
     }
 
     @Transactional(readOnly = true)
+    @CircuitBreaker(name = "classService", fallbackMethod = "getTeacherSubmissionDashboardFallback")
+    @Retry(name = "classService")
     public List<TeacherSubmissionView> getTeacherSubmissionDashboard(Long assignmentId, String filterStatus) {
         Assignment assignment = assignmentRepository.findById(assignmentId)
                 .orElseThrow(() -> new IllegalArgumentException("Assignment not found"));
@@ -146,5 +152,12 @@ public class SubmissionService {
         }
 
         return dashboard;
+    }
+
+    // ----- FALLBACK METHOD -----
+    public List<TeacherSubmissionView> getTeacherSubmissionDashboardFallback(Long assignmentId, String filterStatus, Throwable throwable) {
+        log.error("Error connect to getTeacherSubmissionDashboard (assignmentId: {}). Details: {}",
+                assignmentId, throwable.getMessage());
+        return Collections.emptyList();
     }
 }

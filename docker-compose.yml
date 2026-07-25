@@ -19,9 +19,10 @@ services:
     container_name: gateway-service-app
     restart: always
     ports:
-      - "8080:8080"
+      - "8084:8084"
     environment:
       - EUREKA_URL=http://discovery-service-app:8761/eureka/
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://localhost:8181}
     depends_on:
       - discovery-service
     networks:

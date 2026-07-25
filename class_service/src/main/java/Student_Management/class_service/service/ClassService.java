@@ -7,7 +7,10 @@ import Student_Management.class_service.entity.ClassMemberStatus;
 import Student_Management.class_service.repository.ClassMemberRepository;
 import Student_Management.class_service.repository.ClassRepository;
 import Student_Management.class_service.utils.ClassCodeGenerator;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,6 +20,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ClassService {
 
     private final ClassRepository classRepository;
@@ -26,19 +30,16 @@ public class ClassService {
 
     @Transactional
     public ClassResponse createClass(ClassRequest request) {
-        // take info teacher login from Spring Security Context
         UserPrincipal currentUser = (UserPrincipal) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();
 
         Long teacherId = currentUser.getId();
 
-        // auto-generate class code
         String classCode;
         do {
             classCode = classCodeGenerator.generateRandomCode();
         } while (classRepository.existsByCode(classCode));
 
-        // Create a new Class entity and save the new class information
         Class classroom = Class.builder()
                 .name(request.getName())
                 .courseId(request.getCourseId())
@@ -49,7 +50,6 @@ public class ClassService {
 
         Class savedClass = classRepository.save(classroom);
 
-        // insert teacher as a member of the class with ACTIVE status and TEACHER role
         ClassMember teacherMember = ClassMember.builder()
                 .classroom(savedClass)
                 .userId(teacherId)
@@ -59,7 +59,6 @@ public class ClassService {
 
         classMemberRepository.save(teacherMember);
 
-        // return ClassResponse with class information and teacher's role
         return convertToResponse(savedClass);
     }
 
@@ -77,33 +76,23 @@ public class ClassService {
                 .build();
     }
 
-
     @Transactional(readOnly = true)
+    @CircuitBreaker(name = "userService", fallbackMethod = "getTeacherClassesFallback")
+    @Retry(name = "userService")
     public List<ClassResponse> getTeacherClasses() {
         UserPrincipal currentUser = (UserPrincipal) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();
 
         Long teacherId = currentUser.getId();
 
-        String teacherName = "Unknown Teacher";
-        String teacherEmail = "N/A";
+        UserDto teacherDto = userServiceWebClient.get()
+                .uri("/api/v1/teacher/" + teacherId)
+                .retrieve()
+                .bodyToMono(UserDto.class)
+                .block();
 
-        try {
-            UserDto teacherDto = userServiceWebClient.get()
-                    .uri("/api/v1/teacher/" + teacherId)
-                    .retrieve()
-                    .bodyToMono(UserDto.class)
-                    .block();
-
-            if (teacherDto != null) {
-                teacherName = teacherDto.getFullName();
-                teacherEmail = teacherDto.getEmail();
-            }
-        } catch (Exception e) {
-        }
-
-        String finalTeacherName = teacherName;
-        String finalTeacherEmail = teacherEmail;
+        String finalTeacherName = teacherDto != null ? teacherDto.getFullName() : "Unknown Teacher";
+        String finalTeacherEmail = teacherDto != null ? teacherDto.getEmail() : "N/A";
 
         return classRepository.findByTeacherId(teacherId)
                 .stream()
@@ -116,7 +105,22 @@ public class ClassService {
                 .toList();
     }
 
-    //update password of class by classId, only teacher of this class can update password (this password is used for student to join class)
+    public List<ClassResponse> getTeacherClassesFallback(Throwable throwable) {
+        log.error("Lỗi khi kết nối user-service tại getTeacherClasses. Nguyên nhân: {}", throwable.getMessage());
+        UserPrincipal currentUser = (UserPrincipal) SecurityContextHolder.getContext()
+                .getAuthentication().getPrincipal();
+
+        return classRepository.findByTeacherId(currentUser.getId())
+                .stream()
+                .map(classroom -> {
+                    ClassResponse response = convertToResponse(classroom);
+                    response.setTeacherName("Unknown Teacher");
+                    response.setTeacherEmail("N/A");
+                    return response;
+                })
+                .toList();
+    }
+
     @Transactional
     public ClassResponse updateClassPassword(Long classId, String password) {
         UserPrincipal currentUser = (UserPrincipal) SecurityContextHolder.getContext()
@@ -125,7 +129,6 @@ public class ClassService {
         Class classroom = classRepository.findById(classId)
                 .orElseThrow(() -> new IllegalArgumentException("Cannot find class with id: " + classId));
 
-        //only teacher of this class can update password
         if (!classroom.getTeacherId().equals(currentUser.getId())) {
             throw new IllegalStateException("Only the teacher of this class can update the password!");
         }
@@ -135,18 +138,15 @@ public class ClassService {
         return convertToResponse(updated);
     }
 
-    // logic for student to join class by class code and password, if class code and password are correct, insert student into class_member table with ACTIVE status and STUDENT role
     @Transactional
     public void joinClass(JoinClassRequest request) {
         UserPrincipal currentUser = (UserPrincipal) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();
 
         String inputCode = request.getCode() != null ? request.getCode().trim() : "";
-        // find class by class code
         Class classroom = classRepository.findByCode(inputCode)
                 .orElseThrow(() -> new IllegalArgumentException("Class code is not exist!"));
 
-        // checking security password if teacher set password for this class
         String classPassword = classroom.getPassword();
         if (classPassword != null && !classPassword.isBlank()) {
             if (request.getPassword() == null || !request.getPassword().equals(classPassword)) {
@@ -154,7 +154,6 @@ public class ClassService {
             }
         }
 
-        // check student has joined this class before, if yes, check status of this student in class_member table, if status is ACTIVE, throw exception, if status is INACTIVE, update status to ACTIVE
         java.util.Optional<ClassMember> existingMember = classMemberRepository
                 .findByClassroomAndUserId(classroom, currentUser.getId());
 
@@ -163,12 +162,10 @@ public class ClassService {
             if (member.getStatus() == ClassMemberStatus.ACTIVE) {
                 throw new IllegalStateException("You have joined this class before!");
             } else {
-                // if status is INACTIVE, update status to ACTIVE
                 member.setStatus(ClassMemberStatus.ACTIVE);
                 classMemberRepository.save(member);
             }
         } else {
-            // create new ClassMember entity with STUDENT role and ACTIVE status
             ClassMember newMember = ClassMember.builder()
                     .classroom(classroom)
                     .userId(currentUser.getId())
@@ -179,13 +176,13 @@ public class ClassService {
         }
     }
 
-    // logic to get list of classes that student has joined, only return classes with ACTIVE status in class_member table
     @Transactional(readOnly = true)
+    @CircuitBreaker(name = "userService", fallbackMethod = "getStudentClassesFallback")
+    @Retry(name = "userService")
     public List<ClassResponse> getStudentClasses() {
         UserPrincipal currentUser = (UserPrincipal) SecurityContextHolder.getContext()
                 .getAuthentication().getPrincipal();
 
-        // find all ACTIVE class members with STUDENT role for current user
         List<ClassMember> memberships = classMemberRepository.findByUserIdAndRoleAndStatus(
                 currentUser.getId(), "STUDENT", ClassMemberStatus.ACTIVE);
 
@@ -194,37 +191,49 @@ public class ClassService {
                     Class classroom = membership.getClassroom();
                     ClassResponse response = convertToResponse(classroom);
 
-                    // call inter-service synchronously to user-service to get teacher info by teacherId
-                    try {
-                        UserDto teacherDto = userServiceWebClient.get()
-                                .uri("/api/v1/teacher/" + classroom.getTeacherId())
-                                .retrieve()
-                                .bodyToMono(UserDto.class)
-                                .block();
-                        if (teacherDto != null) {
-                            response.setTeacherName(teacherDto.getFullName());
-                            response.setTeacherEmail(teacherDto.getEmail());
-                        }
-                    } catch (Exception e) {
-                        response.setTeacherName("Annonymous Teacher");
-                        response.setTeacherEmail("N/A");
+                    UserDto teacherDto = userServiceWebClient.get()
+                            .uri("/api/v1/teacher/" + classroom.getTeacherId())
+                            .retrieve()
+                            .bodyToMono(UserDto.class)
+                            .block();
+
+                    if (teacherDto != null) {
+                        response.setTeacherName(teacherDto.getFullName());
+                        response.setTeacherEmail(teacherDto.getEmail());
                     }
                     return response;
                 })
                 .toList();
     }
 
-    // get all list of students in a class by classId, only teacher of this class can get list of students, return list of StudentResponse with userId, fullName, email, status
+    public List<ClassResponse> getStudentClassesFallback(Throwable throwable) {
+        log.error("Error connect to user-service in getStudentClasses. Reason: {}", throwable.getMessage());
+        UserPrincipal currentUser = (UserPrincipal) SecurityContextHolder.getContext()
+                .getAuthentication().getPrincipal();
+
+        List<ClassMember> memberships = classMemberRepository.findByUserIdAndRoleAndStatus(
+                currentUser.getId(), "STUDENT", ClassMemberStatus.ACTIVE);
+
+        return memberships.stream()
+                .map(membership -> {
+                    ClassResponse response = convertToResponse(membership.getClassroom());
+                    response.setTeacherName("Annonymous Teacher");
+                    response.setTeacherEmail("N/A");
+                    return response;
+                })
+                .toList();
+    }
+
     @Transactional(readOnly = true)
+    @CircuitBreaker(name = "userService", fallbackMethod = "getClassMembersFallback")
+    @Retry(name = "userService")
     public List<ClassMemberResponse> getClassMembers(Long classId) {
         Class classroom = classRepository.findById(classId)
                 .orElseThrow(() -> new IllegalArgumentException("cannot find class with id: " + classId));
 
-        // get all list members with ACTIVE status in class_member table by classId
         List<ClassMember> activeMembers = classMemberRepository
                 .findByClassroomAndStatus(classroom, ClassMemberStatus.ACTIVE);
 
-        // filter out teacher, only get members with STUDENT role
         return activeMembers.stream()
                 .filter(m -> "STUDENT".equalsIgnoreCase(m.getRole()))
                 .map(member -> {
@@ -232,53 +241,72 @@ public class ClassService {
                             .userId(member.getUserId())
                             .joinedAt(member.getJoinedAt());
 
-                    try {
-                        // call endpoint of user-service to get detailed information (studentId, fullName, className)
-                        StudentDetailDto studentDto = userServiceWebClient.get()
-                                .uri("/api/v1/student/" + member.getUserId())
-                                .retrieve()
-                                .bodyToMono(StudentDetailDto.class)
-                                .block();
-                        if (studentDto != null) {
-                            builder.fullName(studentDto.getFullName())
-                                    .email(studentDto.getEmail())
-                                    .studentId(studentDto.getStudentId())
-                                    .className(studentDto.getClassName());
-                        }
-                    } catch (Exception e) {
-                        builder.fullName("student name not found")
-                                .email("N/A");
+                    StudentDetailDto studentDto = userServiceWebClient.get()
+                            .uri("/api/v1/student/" + member.getUserId())
+                            .retrieve()
+                            .bodyToMono(StudentDetailDto.class)
+                            .block();
+
+                    if (studentDto != null) {
+                        builder.fullName(studentDto.getFullName())
+                                .email(studentDto.getEmail())
+                                .studentId(studentDto.getStudentId())
+                                .className(studentDto.getClassName());
                     }
                     return builder.build();
                 })
                 .toList();
+    }
 
+    public List<ClassMemberResponse> getClassMembersFallback(Long classId, Throwable throwable) {
+        log.error("Error connect to user-service in getClassMembers (classId: {}). Reason: {}", classId, throwable.getMessage());
+        Class classroom = classRepository.findById(classId)
+                .orElseThrow(() -> new IllegalArgumentException("cannot find class with id: " + classId));
+
+        List<ClassMember> activeMembers = classMemberRepository
+                .findByClassroomAndStatus(classroom, ClassMemberStatus.ACTIVE);
+
+        return activeMembers.stream()
+                .filter(m -> "STUDENT".equalsIgnoreCase(m.getRole()))
+                .map(member -> ClassMemberResponse.builder()
+                        .userId(member.getUserId())
+                        .joinedAt(member.getJoinedAt())
+                        .fullName("student name not found")
+                        .email("N/A")
+                        .build())
+                .toList();
     }
 
     @Transactional(readOnly = true)
+    @CircuitBreaker(name = "userService", fallbackMethod = "getClassByIdFallback")
+    @Retry(name = "userService")
     public ClassResponse getClassById(Long classId) {
-        // find class by id, if not found, throw exception
         Class classroom = classRepository.findById(classId)
                 .orElseThrow(() -> new IllegalArgumentException("Cannot find class with id: " + classId));
 
-        // change data to DTO format to return
         ClassResponse response = convertToResponse(classroom);
 
-        // call background to user-service (port 8081) to get teacher name and email by teacherId
-        try {
-            UserDto teacherDto = userServiceWebClient.get()
-                    .uri("/api/v1/teacher/" + classroom.getTeacherId())
-                    .retrieve()
-                    .bodyToMono(UserDto.class)
-                    .block();
-            if (teacherDto != null) {
-                response.setTeacherName(teacherDto.getFullName());
-                response.setTeacherEmail(teacherDto.getEmail());
-            }
-        } catch (Exception e) {
-            response.setTeacherName("Unknown Instructor");
-            response.setTeacherEmail("N/A");
+        UserDto teacherDto = userServiceWebClient.get()
+                .uri("/api/v1/teacher/" + classroom.getTeacherId())
+                .retrieve()
+                .bodyToMono(UserDto.class)
+                .block();
+
+        if (teacherDto != null) {
+            response.setTeacherName(teacherDto.getFullName());
+            response.setTeacherEmail(teacherDto.getEmail());
         }
+        return response;
+    }
+
+    public ClassResponse getClassByIdFallback(Long classId, Throwable throwable) {
+        log.error("Error connect user-service in getClassById (classId: {}). Reason: {}", classId, throwable.getMessage());
+        Class classroom = classRepository.findById(classId)
+                .orElseThrow(() -> new IllegalArgumentException("Cannot find class with id: " + classId));
+
+        ClassResponse response = convertToResponse(classroom);
+        response.setTeacherName("Unknown Instructor");
+        response.setTeacherEmail("N/A");
         return response;
     }
 }

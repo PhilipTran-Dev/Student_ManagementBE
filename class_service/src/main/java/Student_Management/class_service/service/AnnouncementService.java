@@ -8,7 +8,10 @@ import Student_Management.class_service.entity.Announcement;
 import Student_Management.class_service.entity.Class;
 import Student_Management.class_service.repository.AnnouncementRepository;
 import Student_Management.class_service.repository.ClassRepository;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +21,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AnnouncementService {
 
     private final AnnouncementRepository announcementRepository;
@@ -32,7 +36,6 @@ public class AnnouncementService {
         Class classroom = classRepository.findById(classId)
                 .orElseThrow(() -> new IllegalArgumentException("cannot find class with id: " + classId));
 
-        // make sure only teacher manage this class can create announcement
         if (!classroom.getTeacherId().equals(currentUser.getId())) {
             throw new IllegalStateException("you are not the teacher of this class, cannot create announcement");
         }
@@ -49,22 +52,22 @@ public class AnnouncementService {
     }
 
     @Transactional(readOnly = true)
+    @CircuitBreaker(name = "userService", fallbackMethod = "getAnnouncementsFallback")
+    @Retry(name = "userService")
     public List<AnnouncementResponse> getAnnouncements(Long classId) {
         Class classroom = classRepository.findById(classId)
                 .orElseThrow(() -> new IllegalArgumentException("cannot find class with id: " + classId));
 
         String authorName = "Teacher";
 
-        try {
-            UserDto teacherDto = userServiceWebClient.get()
-                    .uri("/api/v1/teacher/" + classroom.getTeacherId())
-                    .retrieve()
-                    .bodyToMono(UserDto.class)
-                    .block();
-            if (teacherDto != null && teacherDto.getFullName() != null) {
-                authorName = teacherDto.getFullName();
-            }
-        } catch (Exception e) {
+        UserDto teacherDto = userServiceWebClient.get()
+                .uri("/api/v1/teacher/" + classroom.getTeacherId())
+                .retrieve()
+                .bodyToMono(UserDto.class)
+                .block();
+
+        if (teacherDto != null && teacherDto.getFullName() != null) {
+            authorName = teacherDto.getFullName();
         }
 
         String finalAuthorName = authorName;
@@ -72,6 +75,19 @@ public class AnnouncementService {
         return announcementRepository.findByClassroomOrderByCreatedAtDesc(classroom)
                 .stream()
                 .map(announcement -> convertToResponse(announcement, finalAuthorName))
+                .toList();
+    }
+
+    // ----- FALLBACK METHOD -----
+    public List<AnnouncementResponse> getAnnouncementsFallback(Long classId, Throwable throwable) {
+        log.error("error connect to user-service in getAnnouncements (classId: {}). Reason: {}", classId, throwable.getMessage());
+        Class classroom = classRepository.findById(classId)
+                .orElseThrow(() -> new IllegalArgumentException("cannot find class with id: " + classId));
+
+        String defaultAuthorName = "Teacher";
+        return announcementRepository.findByClassroomOrderByCreatedAtDesc(classroom)
+                .stream()
+                .map(announcement -> convertToResponse(announcement, defaultAuthorName))
                 .toList();
     }
 

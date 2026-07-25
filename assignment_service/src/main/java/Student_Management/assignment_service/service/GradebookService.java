@@ -6,7 +6,10 @@ import Student_Management.assignment_service.entity.Assignment;
 import Student_Management.assignment_service.entity.Submission;
 import Student_Management.assignment_service.repository.AssignmentRepository;
 import Student_Management.assignment_service.repository.SubmissionRepository;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -15,12 +18,15 @@ import java.util.*;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class GradebookService {
 
     private final AssignmentRepository assignmentRepository;
     private final SubmissionRepository submissionRepository;
     private final WebClient classServiceWebClient;
 
+    @CircuitBreaker(name = "classService", fallbackMethod = "getClassGradebookFallback")
+    @Retry(name = "classService")
     public List<ClassGradebookRow> getClassGradebook(Long classId) {
         // take all mark columns (Assignments) of this class
         List<Assignment> assignments = assignmentRepository.findByClassIdOrderByDeadlineDesc(classId);
@@ -66,5 +72,12 @@ public class GradebookService {
         }
 
         return gradebookRows;
+    }
+
+    // ----- FALLBACK METHOD -----
+    public List<ClassGradebookRow> getClassGradebookFallback(Long classId, Throwable throwable) {
+        log.error("Cannot take list from class-service (classId: {}). Reason: {}",
+                classId, throwable.getMessage());
+        return Collections.emptyList();
     }
 }
