@@ -16,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.List;
 
 @Service
@@ -89,6 +90,7 @@ public class ClassService {
                 .uri("/api/v1/teacher/" + teacherId)
                 .retrieve()
                 .bodyToMono(UserDto.class)
+                .timeout(Duration.ofSeconds(3))
                 .block();
 
         String finalTeacherName = teacherDto != null ? teacherDto.getFullName() : "Unknown Teacher";
@@ -195,6 +197,7 @@ public class ClassService {
                             .uri("/api/v1/teacher/" + classroom.getTeacherId())
                             .retrieve()
                             .bodyToMono(UserDto.class)
+                            .timeout(Duration.ofSeconds(3))
                             .block();
 
                     if (teacherDto != null) {
@@ -245,6 +248,7 @@ public class ClassService {
                             .uri("/api/v1/student/" + member.getUserId())
                             .retrieve()
                             .bodyToMono(StudentDetailDto.class)
+                            .timeout(Duration.ofSeconds(3))
                             .block();
 
                     if (studentDto != null) {
@@ -290,6 +294,7 @@ public class ClassService {
                 .uri("/api/v1/teacher/" + classroom.getTeacherId())
                 .retrieve()
                 .bodyToMono(UserDto.class)
+                .timeout(Duration.ofSeconds(3))
                 .block();
 
         if (teacherDto != null) {

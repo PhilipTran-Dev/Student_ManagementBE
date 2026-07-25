@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.List;
 
 @Service
@@ -64,6 +65,7 @@ public class AnnouncementService {
                 .uri("/api/v1/teacher/" + classroom.getTeacherId())
                 .retrieve()
                 .bodyToMono(UserDto.class)
+                .timeout(Duration.ofSeconds(3))
                 .block();
 
         if (teacherDto != null && teacherDto.getFullName() != null) {

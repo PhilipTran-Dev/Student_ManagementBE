@@ -14,6 +14,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.*;
 
 @Service
@@ -36,6 +37,7 @@ public class GradebookService {
                 .uri("/api/v1/classes/{classId}/members", classId)
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<List<ClassMemberResponse>>() {})
+                .timeout(Duration.ofSeconds(3))
                 .block();
 
         if (members == null) return Collections.emptyList();

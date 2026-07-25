@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -109,6 +110,7 @@ public class SubmissionService {
                 .uri("/api/v1/classes/{classId}/members", assignment.getClassId())
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<List<ClassMemberResponse>>() {})
+                .timeout(Duration.ofSeconds(3))
                 .block();
 
         if (classMembers == null) classMembers = Collections.emptyList();
