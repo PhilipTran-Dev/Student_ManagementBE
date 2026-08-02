@@ -91,7 +91,7 @@ public class AnnouncementService {
                 .stream()
                 .map(announcement -> convertToResponse(announcement, defaultAuthorName))
                 .toList();
-    }
+    }   
 
     @Transactional
     public AnnouncementResponse updateAnnouncement(Long id, AnnouncementRequest request) {
