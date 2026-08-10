@@ -4,9 +4,12 @@ import Student_Management.assignment_service.dto.*;
 import Student_Management.assignment_service.entity.*;
 import Student_Management.assignment_service.repository.AssignmentRepository;
 import Student_Management.assignment_service.repository.SubmissionRepository;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
+import io.github.resilience4j.retry.annotation.Retry;
 import io.minio.*;
 import io.minio.http.Method;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -15,6 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -22,6 +26,7 @@ import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class AssignmentService {
 
     private final AssignmentRepository assignmentRepository;
@@ -255,12 +260,16 @@ public class AssignmentService {
         }
     }
 
+
     @Transactional(readOnly = true)
+    @CircuitBreaker(name = "classService", fallbackMethod = "getClassGradebookFallback")
+    @Retry(name = "classService")
     public GradebookResponse getClassGradebook(Long classId) {
         List<ClassMemberResponse> classMembers = classServiceWebClient.get()
                 .uri("/api/v1/classes/{classId}/members", classId)
                 .retrieve()
                 .bodyToMono(new ParameterizedTypeReference<List<ClassMemberResponse>>() {})
+                .timeout(Duration.ofSeconds(3))
                 .block();
 
         if (classMembers == null) classMembers = Collections.emptyList();
@@ -301,6 +310,26 @@ public class AssignmentService {
                 .studentRows(studentRows)
                 .build();
     }
+ // fallback function
+    public GradebookResponse getClassGradebookFallback(Long classId, Throwable throwable) {
+        log.error("Cannot find class {}. Reason: {}",
+                classId, throwable.getMessage());
+
+        List<Assignment> assignments = assignmentRepository.findByClassIdOrderByDeadlineDesc(classId);
+        List<GradebookAssignmentInfo> assignmentInfos = assignments.stream()
+                .map(a -> GradebookAssignmentInfo.builder()
+                        .id(a.getId())
+                        .title(a.getTitle())
+                        .maxMark(a.getMaxMark())
+                        .build())
+                .collect(Collectors.toList());
+
+        return GradebookResponse.builder()
+                .assignments(assignmentInfos)
+                .studentRows(Collections.emptyList())
+                .build();
+    }
+
 
     private void verifyTeacherAccess(Long classId, Long teacherId) {
         // Giả lập hoặc gọi sang class-service qua WebClient

@@ -47,11 +47,6 @@ resilience4j:
         permittedNumberOfCallsInHalfOpenState: 3
         automaticTransitionFromOpenToHalfOpenEnabled: true
 
-  timelimiter:
-    instances:
-      userService:
-        timeoutDuration: 3s
-
   retry:
     instances:
       userService:
