@@ -1,0 +1,32 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # 2. API Gateway
+  - job_name: 'gateway-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['gateway-service-app:8080']
+
+  # 3. User Service
+  - job_name: 'user-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['user-service-app:8081']
+
+  # 4. Class Service
+  - job_name: 'class-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['class-service-app:8082']
+
+  # 5. Assignment Service
+  - job_name: 'assignment-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['assignment-service-app:8083']
