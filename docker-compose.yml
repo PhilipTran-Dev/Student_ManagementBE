@@ -12,9 +12,10 @@ services:
       - JAVA_OPTS=-Xmx256m -Xms128m
     healthcheck:
       test: ["CMD-SHELL", "nc -z localhost 8761 || exit 1"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 60s
     networks:
       - classroom-network
 
