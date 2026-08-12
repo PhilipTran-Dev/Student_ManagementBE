@@ -25,12 +25,21 @@
         <jjwt.version>0.12.5</jjwt.version>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>confluent</id>
+            <name>Confluent Repository</name>
+            <url>https://packages.confluent.io/maven/</url>
+        </repository>
+    </repositories>
+
     <modules>
         <module>user-service</module>
         <module>class_service</module>
         <module>discovery_service</module>
         <module>assignment_service</module>
         <module>gateway_service</module>
+        <module>notification_service</module>
     </modules>
 
     <dependencyManagement>

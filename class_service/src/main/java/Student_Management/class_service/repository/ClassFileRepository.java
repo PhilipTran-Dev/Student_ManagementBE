@@ -11,4 +11,5 @@ import java.util.List;
 public interface ClassFileRepository extends JpaRepository<ClassFile, Long> {
     //take all uploaded files of this class
     List<ClassFile> findByClassroomOrderByCreatedAtDesc(Class classroom);
+
 }

@@ -4,6 +4,7 @@ import Student_Management.assignment_service.dto.*;
 import Student_Management.assignment_service.entity.*;
 import Student_Management.assignment_service.repository.AssignmentRepository;
 import Student_Management.assignment_service.repository.SubmissionRepository;
+import Student_Management.event.NotificationEvent;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import io.minio.*;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +39,8 @@ public class AssignmentService {
     @Value("${app.minio.bucket}")
     private String bucket;
 
+    private final KafkaTemplate<String, NotificationEvent> kafkaTemplate;
+
     // ----- TEACHER LOGIC -----
 
     @Transactional
@@ -59,7 +63,24 @@ public class AssignmentService {
                 .attachments(fileUrls)
                 .build();
 
-        return assignmentRepository.save(assignment);
+        Assignment savedAssignment = assignmentRepository.save(assignment);
+
+        // kafka event for notification
+        try {
+            NotificationEvent event = NotificationEvent.newBuilder()
+                    .setRecipientEmail("class_" + savedAssignment.getClassId() + "@student.edu.vn")
+                    .setTitle("New Assignment: " + savedAssignment.getTitle())
+                    .setContent("A new assignment has been assigned. Deadline: " + savedAssignment.getDeadline())
+                    .setEventType("ASSIGNMENT_CREATED")
+                    .build();
+
+            kafkaTemplate.send("notification-events-topic", event);
+            log.info("Successfully sent ASSIGNMENT_CREATED event to Kafka for assignmentId: {}", savedAssignment.getId());
+        } catch (Exception e) {
+            log.error("Failed to send Kafka event (createAssignment): {}", e.getMessage());
+        }
+
+        return savedAssignment;
     }
 
     @Transactional
@@ -102,7 +123,24 @@ public class AssignmentService {
         submission.setGrade(request.getGrade());
         submission.setFeedback(request.getFeedback());
 
-        return submissionRepository.save(submission);
+        Submission savedSubmission = submissionRepository.save(submission);
+
+        // kafka event for notification
+        try {
+            NotificationEvent event = NotificationEvent.newBuilder()
+                    .setRecipientEmail("student_" + savedSubmission.getStudentId() + "@student.edu.vn")
+                    .setTitle("Assignment Graded: " + savedSubmission.getAssignment().getTitle())
+                    .setContent("Your submission has been graded. Score: " + savedSubmission.getGrade() + "/" + savedSubmission.getAssignment().getMaxMark())
+                    .setEventType("GRADE_UPDATED")
+                    .build();
+
+            kafkaTemplate.send("notification-events-topic", event);
+            log.info("Successfully sent GRADE_UPDATED event to Kafka for submissionId: {}", savedSubmission.getId());
+        } catch (Exception e) {
+            log.error("Failed to send Kafka event (gradeSubmission): {}", e.getMessage());
+        }
+
+        return savedSubmission;
     }
 
     // ----- STUDENT LOGIC -----
@@ -148,7 +186,24 @@ public class AssignmentService {
                 .status(status)
                 .build();
 
-        return submissionRepository.save(submission);
+        Submission savedSubmission = submissionRepository.save(submission);
+
+        //kafka event for notification
+        try {
+            NotificationEvent event = NotificationEvent.newBuilder()
+                    .setRecipientEmail("teacher_class_" + assignment.getClassId() + "@school.edu.vn")
+                    .setTitle("New Submission: " + assignment.getTitle())
+                    .setContent("Student ID " + studentId + " has submitted the assignment. Status: " + savedSubmission.getStatus())
+                    .setEventType("SUBMISSION_CREATED")
+                    .build();
+
+            kafkaTemplate.send("notification-events-topic", event);
+            log.info("Successfully sent SUBMISSION_CREATED event to Kafka for assignmentId: {}", assignmentId);
+        } catch (Exception e) {
+            log.error("Failed to send Kafka event (submitAssignment): {}", e.getMessage());
+        }
+
+        return savedSubmission;
     }
 
     // ----- CORE PRIVATE METHODS -----

@@ -13,6 +13,7 @@
         <option value="$PROJECT_DIR$/assignment_service - Copy/pom.xml" />
         <option value="$PROJECT_DIR$/Api_Gateway/pom.xml" />
         <option value="$PROJECT_DIR$/api_gateway/pom.xml" />
+        <option value="$PROJECT_DIR$/notification_service/pom.xml" />
       </list>
     </option>
     <option name="ignoredFiles">

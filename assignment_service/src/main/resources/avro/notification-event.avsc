@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "NotificationEvent",
+  "namespace": "Student_Management.event",
+  "fields": [
+    {
+      "name": "recipientEmail",
+      "type": "string"
+    },
+    {
+      "name": "title",
+      "type": "string"
+    },
+    {
+      "name": "content",
+      "type": "string"
+    },
+    {
+      "name": "eventType",
+      "type": "string"
+    }
+  ]
+}
