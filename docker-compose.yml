@@ -283,6 +283,32 @@ services:
     networks:
       - classroom-network
 
+  notification-service:
+    build:
+      context: .
+      dockerfile: notification_service/Dockerfile
+    image: phucngo249/notification-service:latest
+    container_name: notification-service-app
+    restart: always
+    ports:
+      - "8084:8084"
+    environment:
+      - JAVA_OPTS=-Xmx256m -Xms128m
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
+      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
+      - EUREKA_URL=http://discovery-service-app:8761/eureka/
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=false
+      - EUREKA_INSTANCE_HOSTNAME=notification-service-app
+    depends_on:
+      discovery-service:
+        condition: service_healthy
+      broker:
+        condition: service_started
+      schema-registry:
+        condition: service_started
+    networks:
+      - classroom-network
+
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: zookeeper-server
