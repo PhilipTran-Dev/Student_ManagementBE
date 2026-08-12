@@ -68,14 +68,14 @@ public class AssignmentService {
         // kafka event for notification
         try {
             NotificationEvent event = NotificationEvent.newBuilder()
-                    .setRecipientEmail("class_" + savedAssignment.getClassId() + "@student.edu.vn")
+                    .setClassId(savedAssignment.getClassId().toString()) 
                     .setTitle("New Assignment: " + savedAssignment.getTitle())
                     .setContent("A new assignment has been assigned. Deadline: " + savedAssignment.getDeadline())
                     .setEventType("ASSIGNMENT_CREATED")
                     .build();
 
             kafkaTemplate.send("notification-events-topic", event);
-            log.info("Successfully sent ASSIGNMENT_CREATED event to Kafka for assignmentId: {}", savedAssignment.getId());
+            log.info("Successfully sent ASSIGNMENT_CREATED event to Kafka for classId: {}", savedAssignment.getClassId());
         } catch (Exception e) {
             log.error("Failed to send Kafka event (createAssignment): {}", e.getMessage());
         }

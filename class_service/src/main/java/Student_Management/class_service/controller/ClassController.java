@@ -20,13 +20,6 @@ public class ClassController {
 
     private final ClassService classService;
 
-    @GetMapping("/{classId}/students/emails")
-    public ResponseEntity<List<String>> getStudentEmailsByClassId(@PathVariable("classId") String classId) {
-        List<String> emails = classService.getStudentEmailsByClassId(classId);
-        return ResponseEntity.ok(emails);
-    }
-
-
     // create api for teacher to create class
     @PostMapping("/teacher/create")
     public ResponseEntity<ClassResponse> createClass(@Valid @RequestBody ClassRequest request) {
@@ -73,5 +66,12 @@ public class ClassController {
     @GetMapping("/{classId}")
     public ResponseEntity<ClassResponse> getClassById(@PathVariable Long classId) {
         return ResponseEntity.ok(classService.getClassById(classId));
+    }
+
+    // notification
+    @GetMapping("/{classId}/students/emails")
+    public ResponseEntity<List<String>> getStudentEmailsByClassId(@PathVariable("classId") String classId) {
+        List<String> emails = classService.getStudentEmailsByClassId(classId);
+        return ResponseEntity.ok(emails);
     }
 }

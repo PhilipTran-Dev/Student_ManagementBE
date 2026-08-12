@@ -4,8 +4,14 @@
   "namespace": "Student_Management.event",
   "fields": [
     {
+      "name": "classId",
+      "type": ["null", "string"],
+      "default": null
+    },
+    {
       "name": "recipientEmail",
-      "type": "string"
+      "type": ["null", "string"],
+      "default": null
     },
     {
       "name": "title",

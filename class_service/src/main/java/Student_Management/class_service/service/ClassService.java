@@ -18,6 +18,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 
 @Service
 @RequiredArgsConstructor
@@ -313,5 +314,36 @@ public class ClassService {
         response.setTeacherName("Unknown Instructor");
         response.setTeacherEmail("N/A");
         return response;
+    }
+
+    //notification
+    @Transactional(readOnly = true)
+    public List<String> getStudentEmailsByClassId(String classIdStr) {
+        Long classId = Long.parseLong(classIdStr);
+
+        Class classroom = classRepository.findById(classId)
+                .orElseThrow(() -> new IllegalArgumentException("Cannot find class with id: " + classId));
+
+        List<ClassMember> activeMembers = classMemberRepository
+                .findByClassroomAndStatus(classroom, ClassMemberStatus.ACTIVE);
+
+        return activeMembers.stream()
+                .filter(m -> "STUDENT".equalsIgnoreCase(m.getRole()))
+                .map(member -> {
+                    try {
+                        StudentDetailDto studentDto = userServiceWebClient.get()
+                                .uri("/api/v1/student/" + member.getUserId())
+                                .retrieve()
+                                .bodyToMono(StudentDetailDto.class)
+                                .timeout(Duration.ofSeconds(3))
+                                .block();
+                        return studentDto != null ? studentDto.getEmail() : null;
+                    } catch (Exception e) {
+                        log.error("Error fetching email for student id {}: {}", member.getUserId(), e.getMessage());
+                        return null;
+                    }
+                })
+                .filter(Objects::nonNull)
+                .toList();
     }
 }
