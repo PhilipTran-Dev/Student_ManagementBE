@@ -38,7 +38,7 @@ public class AssignmentService {
 
     @Value("${app.minio.bucket}")
     private String bucket;
-
+    private final WebClient userServiceWebClient;
     private final KafkaTemplate<String, NotificationEvent> kafkaTemplate;
 
     // ----- TEACHER LOGIC -----
@@ -68,7 +68,7 @@ public class AssignmentService {
         // kafka event for notification
         try {
             NotificationEvent event = NotificationEvent.newBuilder()
-                    .setClassId(savedAssignment.getClassId().toString()) 
+                    .setClassId(savedAssignment.getClassId().toString())
                     .setTitle("New Assignment: " + savedAssignment.getTitle())
                     .setContent("A new assignment has been assigned. Deadline: " + savedAssignment.getDeadline())
                     .setEventType("ASSIGNMENT_CREATED")
@@ -125,17 +125,35 @@ public class AssignmentService {
 
         Submission savedSubmission = submissionRepository.save(submission);
 
-        // kafka event for notification
+        // KAFKA EVENT FOR NOTIFICATION
         try {
-            NotificationEvent event = NotificationEvent.newBuilder()
-                    .setRecipientEmail("student_" + savedSubmission.getStudentId() + "@student.edu.vn")
-                    .setTitle("Assignment Graded: " + savedSubmission.getAssignment().getTitle())
-                    .setContent("Your submission has been graded. Score: " + savedSubmission.getGrade() + "/" + savedSubmission.getAssignment().getMaxMark())
-                    .setEventType("GRADE_UPDATED")
-                    .build();
+            String studentEmail = null;
+            try {
+                Map<?, ?> studentMap = userServiceWebClient.get()
+                        .uri("/api/v1/student/" + savedSubmission.getStudentId())
+                        .retrieve()
+                        .bodyToMono(Map.class)
+                        .timeout(Duration.ofSeconds(3))
+                        .block();
 
-            kafkaTemplate.send("notification-events-topic", event);
-            log.info("Successfully sent GRADE_UPDATED event to Kafka for submissionId: {}", savedSubmission.getId());
+                if (studentMap != null && studentMap.get("email") != null) {
+                    studentEmail = studentMap.get("email").toString();
+                }
+            } catch (Exception e) {
+                log.error("Failed to fetch student email: {}", e.getMessage());
+            }
+
+            if (studentEmail != null) {
+                NotificationEvent event = NotificationEvent.newBuilder()
+                        .setRecipientEmail(studentEmail)
+                        .setTitle("Assignment Graded: " + savedSubmission.getAssignment().getTitle())
+                        .setContent("Your submission has been graded. Score: " + savedSubmission.getGrade() + "/" + savedSubmission.getAssignment().getMaxMark() + ". Feedback: " + (savedSubmission.getFeedback() != null ? savedSubmission.getFeedback() : "None"))
+                        .setEventType("GRADE_UPDATED")
+                        .build();
+
+                kafkaTemplate.send("notification-events-topic", event);
+                log.info("Successfully sent GRADE_UPDATED event to Kafka for student email: {}", studentEmail);
+            }
         } catch (Exception e) {
             log.error("Failed to send Kafka event (gradeSubmission): {}", e.getMessage());
         }

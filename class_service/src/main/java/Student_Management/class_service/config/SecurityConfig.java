@@ -38,6 +38,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/error").permitAll()
                         .requestMatchers("/actuator/**").permitAll()
+                        .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/classes/*/students/emails").permitAll()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/courses/**").authenticated()
                         .requestMatchers(org.springframework.http.HttpMethod.GET, "/api/v1/semesters/**").authenticated()
 

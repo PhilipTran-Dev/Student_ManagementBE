@@ -3,6 +3,7 @@ package Student_Management.assignment_service.service;
 import Student_Management.assignment_service.dto.*;
 import Student_Management.assignment_service.entity.*;
 import Student_Management.assignment_service.repository.*;
+import Student_Management.event.NotificationEvent;
 import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import io.github.resilience4j.retry.annotation.Retry;
 import io.minio.*;
@@ -10,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -29,6 +31,8 @@ public class SubmissionService {
     private final SubmissionRepository submissionRepository;
     private final MinioClient minioClient;
     private final WebClient classServiceWebClient;
+    private final WebClient userServiceWebClient;
+    private final KafkaTemplate<String, NotificationEvent> kafkaTemplate;
 
     @Value("${app.minio.bucket}")
     private String bucket;
@@ -73,7 +77,35 @@ public class SubmissionService {
                 .status(status)
                 .build();
 
-        return submissionRepository.save(submission);
+        Submission savedSubmission = submissionRepository.save(submission);
+
+        try {
+            Long teacherId = assignment.getCreatedBy();
+            Map<?, ?> teacherMap = userServiceWebClient.get()
+                    .uri("/api/v1/teacher/" + teacherId)
+                    .retrieve()
+                    .bodyToMono(Map.class)
+                    .timeout(Duration.ofSeconds(3))
+                    .block();
+
+            if (teacherMap != null && teacherMap.get("email") != null) {
+                String teacherEmail = teacherMap.get("email").toString();
+
+                NotificationEvent event = NotificationEvent.newBuilder()
+                        .setRecipientEmail(teacherEmail)
+                        .setTitle("New Submission: " + assignment.getTitle())
+                        .setContent("Student ID " + studentId + " has submitted the assignment. Status: " + savedSubmission.getStatus())
+                        .setEventType("SUBMISSION_CREATED")
+                        .build();
+
+                kafkaTemplate.send("notification-events-topic", event);
+                log.info("Successfully sent SUBMISSION_CREATED event to Kafka for teacher email: {}", teacherEmail);
+            }
+        } catch (Exception e) {
+            log.error("Failed to send Kafka event for submission: {}", e.getMessage());
+        }
+
+        return savedSubmission;
     }
 
     @Transactional

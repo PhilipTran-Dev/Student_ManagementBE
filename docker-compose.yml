@@ -270,6 +270,8 @@ services:
       - APP_JWT_SECRET=3c963655447b567565b90214e9f7f0bc62e1e07b7134017326dfbf0800b6ed5b
       - USER_SERVICE_URL=http://user-service
       - CLASS_SERVICE_URL=http://class-service
+      - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
+      - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
       - EUREKA_URL=http://discovery-service-app:8761/eureka/
       - EUREKA_INSTANCE_PREFER_IP_ADDRESS=false
       - EUREKA_INSTANCE_HOSTNAME=assignment-service-app
@@ -280,6 +282,10 @@ services:
         condition: service_started
       discovery-service:
         condition: service_healthy
+      broker:
+        condition: service_started
+      schema-registry:
+        condition: service_started
     networks:
       - classroom-network
 
