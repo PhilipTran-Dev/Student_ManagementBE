@@ -98,6 +98,26 @@ services:
     networks:
       - classroom-network
 
+  postgres-notification-db:
+    image: postgres:15-alpine
+    container_name: postgres-notification-container
+    restart: always
+    ports:
+      - "5437:5432"
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=123
+      - POSTGRES_DB=notification_service
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d notification_service" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_notification_data:/var/lib/postgresql/data
+    networks:
+      - classroom-network
+
   minio:
     image: minio/minio:latest
     container_name: minio-storage
@@ -300,12 +320,19 @@ services:
       - "8084:8084"
     environment:
       - JAVA_OPTS=-Xmx256m -Xms128m
+      - DB_HOST=postgres-notification-db
+      - DB_PORT=5432
+      - DB_NAME=notification_service
+      - DB_USER=postgres
+      - DB_PASSWORD=123
       - SPRING_KAFKA_BOOTSTRAP_SERVERS=broker:29092
       - SPRING_KAFKA_PROPERTIES_SCHEMA_REGISTRY_URL=http://schema-registry:8081
       - EUREKA_URL=http://discovery-service-app:8761/eureka/
       - EUREKA_INSTANCE_PREFER_IP_ADDRESS=false
       - EUREKA_INSTANCE_HOSTNAME=notification-service-app
     depends_on:
+      postgres-notification-db:
+        condition: service_healthy
       discovery-service:
         condition: service_healthy
       broker:
@@ -381,6 +408,7 @@ volumes:
   postgres_user_data:
   postgres_class_data:
   postgres_assignment_data:
+  postgres_notification_data:
   minio_data:
 
 networks:
